@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -46,21 +45,21 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	imagefile, header, err := r.FormFile("thumbnail")
+	imagefile, h, err := r.FormFile("thumbnail")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't FormFile", err)
 		return
 	}
 	defer imagefile.Close()
 
-	mediaType := header.Header.Get("Content-Type")
-	mediatype, _, err := mime.ParseMediaType(mediaType)
+	contentType := h.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "ParseMediaType", err)
 		return
 	}
-	if mediatype != "image/png" && mediatype != "image/jpeg" {
-		respondWithError(w, http.StatusBadRequest, "Wrong file type", errors.New("Wrong file type"))
+	if mediaType != "image/png" && mediaType != "image/jpeg" {
+		respondWithError(w, http.StatusUnsupportedMediaType, "Wrong file type", fmt.Errorf("Expected image type, got %s", mediaType))
 		return
 	}
 
@@ -91,7 +90,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer file.Close()
-	io.Copy(file, imagefile)
+
+	_, err = io.Copy(file, imagefile)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "can't copy", err)
+		return
+	}
 
 	url := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, name, extension)
 	dbVideo.ThumbnailURL = &url
