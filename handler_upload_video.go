@@ -85,11 +85,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	tempFile.Seek(0, io.SeekStart)
 
+	ratio, err := getVideoAspectRatio(tempFile.Name())
+	var orientation string
+	if ratio == "16:9" {
+		orientation = "landscape"
+	} else {
+		orientation = "portrait"
+	}
+
 	key := make([]byte, 32)
 	rand.Read(key)
 	name := base64.RawURLEncoding.EncodeToString(key)
-	filePath := filepath.Join(cfg.assetsRoot, name)
+	filePath := filepath.Join(cfg.assetsRoot, orientation, name)
 
+	fastFilepath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "fast file", fmt.Errorf("Shit happens, %v", err.Error()))
+		return
+	}
 	file, err := os.Create(filePath + ".mp4")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "error in file", err)
@@ -97,7 +110,15 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, tempFile)
+	fastFile, err := os.Open(fastFilepath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Fasr file opening error", err)
+		return
+	}
+	defer fastFile.Close()
+	defer os.Remove(fastFile.Name())
+
+	_, err = io.Copy(file, fastFile)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "error in copying file", err)
 		return

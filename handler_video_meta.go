@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os/exec"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -117,4 +120,51 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 	}
 
 	respondWithJSON(w, http.StatusOK, videos)
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	type streams struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+	type Ffprobe struct {
+		Streams []streams `json:"streams"`
+	}
+	var ffprobe Ffprobe
+	json.Unmarshal(stdout.Bytes(), &ffprobe)
+	height := ffprobe.Streams[0].Height
+	width := ffprobe.Streams[0].Width
+	GCD := func(a, b int) int {
+		for b != 0 {
+			temp := b
+			b = a % b
+			a = temp
+		}
+		return a
+	}
+	gcd := GCD(width, height)
+	if gcd == 0 {
+		return "", fmt.Errorf("Cannot divide by 0")
+	}
+	ratio := fmt.Sprintf("%d:%d", width/gcd, height/gcd)
+	return ratio, nil
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	outputFilePath := filePath + ".processing"
+
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", outputFilePath)
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return outputFilePath, nil
 }
